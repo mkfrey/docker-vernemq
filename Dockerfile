@@ -1,4 +1,23 @@
+ARG VERNEMQ_VERSION="1.12.3"
+ARG ELIXIR_VERSION="1.11.4"
+
+# Requires Erlang/OTP 21.2 or newer (but not yet OTP 24)
+FROM elixir:${ELIXIR_VERSION} as builder
+ARG VERNEMQ_VERSION
+
+WORKDIR /build
+
+# Install dependencies
+RUN apt-get -qq update && apt-get -qq install libsnappy-dev
+
+# Clone and make VerneMQ
+RUN echo ${VERNEMQ_VERSION} && git clone https://github.com/vernemq/vernemq.git -b ${VERNEMQ_VERSION} && \
+    cd vernemq && \
+    make rel && \
+    cd ..
+
 FROM debian:buster-slim
+ARG VERNEMQ_VERSION
 
 RUN apt-get update && \
     apt-get -y install bash procps openssl iproute2 curl jq libsnappy-dev net-tools nano && \
@@ -12,14 +31,13 @@ WORKDIR /vernemq
 ENV DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR="app=vernemq" \
     DOCKER_VERNEMQ_LOG__CONSOLE=console \
     PATH="/vernemq/bin:$PATH" \
-    VERNEMQ_VERSION="1.12.3"
+    VERNEMQ_VERSION=${VERNEMQ_VERSION}
 COPY --chown=10000:10000 bin/vernemq.sh /usr/sbin/start_vernemq
 COPY --chown=10000:10000 files/vm.args /vernemq/etc/vm.args
 
-RUN curl -L https://github.com/vernemq/vernemq/releases/download/$VERNEMQ_VERSION/vernemq-$VERNEMQ_VERSION.buster.tar.gz -o /tmp/vernemq-$VERNEMQ_VERSION.buster.tar.gz && \
-    tar -xzvf /tmp/vernemq-$VERNEMQ_VERSION.buster.tar.gz && \
-    rm /tmp/vernemq-$VERNEMQ_VERSION.buster.tar.gz && \
-    chown -R 10000:10000 /vernemq && \
+COPY --from=builder /build/vernemq/_build/default/rel/vernemq /vernemq
+
+RUN chown -R 10000:10000 /vernemq && \
     ln -s /vernemq/etc /etc/vernemq && \
     ln -s /vernemq/data /var/lib/vernemq && \
     ln -s /vernemq/log /var/log/vernemq
@@ -34,7 +52,7 @@ RUN curl -L https://github.com/vernemq/vernemq/releases/download/$VERNEMQ_VERSIO
 # 9100 9101 9102 9103 9104 9105 9106 9107 9108 9109  Specific Distributed Erlang Port Range
 
 EXPOSE 1883 8883 8080 44053 4369 8888 \
-       9100 9101 9102 9103 9104 9105 9106 9107 9108 9109
+    9100 9101 9102 9103 9104 9105 9106 9107 9108 9109
 
 
 VOLUME ["/vernemq/log", "/vernemq/data", "/vernemq/etc"]
